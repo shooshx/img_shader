@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 #include <gl/glew.h>
-
+#include "img_shader.h"
 
 
 #define CHECK_GL_ERR
@@ -18,7 +18,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		PostQuitMessage(0);
 		break;
     case WM_ERASEBKGND:
-        LOG("WM_ERASEBKGND");
+        //LOG("WM_ERASEBKGND");
         return 1;
     case WM_CHAR:
         if (wParam == VK_ESCAPE)
@@ -28,7 +28,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         }
         break;
     case WM_CREATE:
-        LOG("WM_CREATE");
+        //LOG("WM_CREATE");
+        break;
     }
     return DefWindowProc(hWnd, message, wParam, lParam);
 }
@@ -44,7 +45,7 @@ const char* def_vshader = R"***(
     attribute vec3 aVtxPos;
     varying vec2  pos;
     void main(void) {
-        pos = aVtxPos.xy;
+        pos = vec2(aVtxPos.x * 0.5 + 0.5, aVtxPos.y * 0.5 + 0.5);
         gl_Position = vec4(aVtxPos, 1.0);
     }
 )***";
@@ -105,8 +106,16 @@ void mglCheckErrors(const char* place)
 
 
 HDC g_hDC = NULL;
+int g_width = 0;
+int g_height = 0;
+bool g_showWindow = false;
 
-bool initOpenGL(bool showWindow)
+void getSize(int* width, int* height) {
+    *width = g_width;
+    *height = g_height;
+}
+
+bool initOpenGL(bool showWindow, int width, int height)
 {
     WNDCLASSEXA wcex = {0};
 	wcex.cbSize = sizeof(WNDCLASSEX); 
@@ -120,8 +129,18 @@ bool initOpenGL(bool showWindow)
         return false;
     }
 
-//    LOG("Creating window");
-    HWND hWnd = CreateWindowA(MY_WND_CLS, "OGL", WS_POPUP /*| WS_OVERLAPPEDWINDOW*/, 0, 0, XSZ, YSZ, 0,0,0,0);
+    g_width = width;
+    g_height = height;
+    g_showWindow = showWindow;
+
+    DWORD style = WS_SYSMENU | WS_MINIMIZEBOX | WS_OVERLAPPED | WS_CAPTION;
+    if (width < 150)
+        style = WS_POPUP; // the title bar would streach it
+    RECT rect = {0,0,width,height };
+    AdjustWindowRect(&rect, style, FALSE);
+    //LOG("rect %d,%d,%d,%d", rect.top, rect.bottom, rect.left, rect.right);
+
+    HWND hWnd = CreateWindowA(MY_WND_CLS, "OGL", style, CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, 0,0,0,0);
     if (hWnd == NULL) {
         LOG("Failed CreateWindowA");
         return false;
@@ -166,7 +185,8 @@ bool initOpenGL(bool showWindow)
    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
    // SwapBuffers(hDC);
 
-    ShowWindow(hWnd, SW_SHOW);
+    if (showWindow)
+        ShowWindow(hWnd, SW_SHOW);
     return true;
 }
 
@@ -191,7 +211,7 @@ int compileFragShader(const char* fshader)
     glLinkProgram(prog);
 
     int loc_tex = glGetUniformLocation(prog, "intex");
-    LOG("tex loc %d", loc_tex);
+    //LOG("tex loc %d", loc_tex);
     glUseProgram(prog); // meeded for glUniform
     glUniform1i(loc_tex, 0);
 
@@ -201,8 +221,8 @@ int compileFragShader(const char* fshader)
 
 }
 
-int g_width = 0, g_height = 0;
 
+/*
 bool setImgSize(int width, int height)
 {
     if (g_width != 0 || g_height != 0)
@@ -213,9 +233,66 @@ bool setImgSize(int width, int height)
     g_height = height;
     return true;
 }
+*/
 
-int createTex(int internal_format, int format, int type, const char* buf)
+
+// converting to RGBA because loading a single channel texture of non power of 2 has a problem
+char *g_convertBuf = NULL;
+int g_convBufSz = 0;
+
+void ensureConvBuf() {
+    if (g_convertBuf == NULL) {
+        g_convBufSz = g_width * g_height * 4;
+        g_convertBuf = (char*)malloc(g_convBufSz);
+    }
+}
+
+int elemSize(const char* fmtname) {
+    if (strcmp(fmtname, "RGBA") == 0)
+        return 4;
+    if (strcmp(fmtname, "RGB") == 0)
+        return 3;
+    if (strcmp(fmtname, "L") == 0)
+        return 1;
+
+    return 0;
+}
+
+int inImg(const char* fmtname, int size, const char* buf)
 {
+    int needSz = g_width * g_height * elemSize(fmtname);
+    if (size != needSz) {
+        LOG("Wrong size! %d != %d (%d*%d)", size, needSz, g_width, g_height);
+        return -1;
+    }
+
+    int internal_format = 0, format = 0, type = 0;
+    if (strcmp(fmtname, "L") == 0)
+    {
+        ensureConvBuf();
+        memset(g_convertBuf, 0, g_convBufSz);
+        for(int i = 0; i < size; ++i)
+            g_convertBuf[i*4] = buf[i];
+        buf = g_convertBuf;
+        internal_format = GL_RGBA8;
+        format = GL_RGBA;
+        type = GL_UNSIGNED_BYTE;
+    }
+    else if (strcmp(fmtname, "RGBA") == 0)
+    {
+        internal_format = GL_RGBA8;
+        format = GL_RGBA;
+        type = GL_UNSIGNED_BYTE;
+    }
+    else if (strcmp(fmtname, "RGB") == 0)
+    {
+        internal_format = GL_RGB8;
+        format = GL_RGB;
+        type = GL_UNSIGNED_BYTE;
+    }
+    else
+        return false;
+
     unsigned int tex = 0;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
@@ -236,23 +313,7 @@ int createTex(int internal_format, int format, int type, const char* buf)
     return (int)tex;
 }
 
-int inGrayScaleByteImg(int size, const char* buf)
-{
-    if (size != (g_width * g_height)) {
-        LOG("Wrong size! %d != %d (%d*%d)", size, g_width * g_height, g_width, g_height);
-        return -1;
-    }
-    return createTex(GL_R8, GL_RED, GL_UNSIGNED_BYTE, buf);
-}
 
-int inRGBAByteImg(int size, const char* buf)
-{
-    if (size != (g_width * g_height * 4)) {
-        LOG("Wrong size! %d != %d", size, g_width * g_height * 4);
-        return -1;
-    }
-    return createTex(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, buf);
-}
 
 
 void render(int prog, int img)
@@ -285,24 +346,62 @@ void render(int prog, int img)
     
     glDrawElements(GL_TRIANGLES, indCount, GL_UNSIGNED_SHORT, 0);
 
-    SwapBuffers(g_hDC);
+   // SwapBuffers(g_hDC);
+
 
 };
 
-int outGrayScaleByte(int size, const char* intoBuf)
+bool outImg(const char* fmtname, int size, char* intoBuf)
 {
-     if (size != (g_width * g_height))
+    int needSz = g_width * g_height * elemSize(fmtname);
+    if (size != needSz) {
+        LOG("Wrong size! %d != %d", size, needSz);
         return false;
+    }
+    char *buf = intoBuf;
+    bool singleChan = false;
+    int format = 0, type = 0;
+
+    if (strcmp(fmtname, "L") == 0) {
+        ensureConvBuf();
+        buf = g_convertBuf;
+        singleChan = true;
+        format = GL_RGBA;
+        type = GL_UNSIGNED_BYTE;
+    }
+    else if (strcmp(fmtname, "RGBA") == 0)
+    {
+        format = GL_RGBA;
+        type = GL_UNSIGNED_BYTE;
+    }
+    else if (strcmp(fmtname, "RGB") == 0)
+    {
+        format = GL_RGB;
+        type = GL_UNSIGNED_BYTE;
+    }
+    else
+        return false;
+
+    glReadPixels(0, 0, g_width, g_height, format, type, (void*)buf);
+
+    if (singleChan)
+        for (int i = 0; i < size; ++i)
+            intoBuf[i] = g_convertBuf[i * 4];
 
     return true;
 }
 
+
 void runWindow()
 {
+    SwapBuffers(g_hDC); // back buffer to front so it's visible
+
     MSG msg;
 	while (GetMessage(&msg, NULL, 0, 0)) 
 	{
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	} // TBD process ESC
+
+    SwapBuffers(g_hDC); // front buffer to back so it could be read when saving to file
 }
