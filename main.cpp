@@ -10,7 +10,7 @@
 
 #define LOG(...) do { printf(__VA_ARGS__); printf("\n"); } while(0)
 
-LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
+LRESULT CALLBACK OglWndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
 	switch (message) 
 	{
@@ -36,9 +36,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 #define MY_WND_CLS "MyOglCls"
 
-
-#define XSZ 800
-#define YSZ 600
 
 
 const char* def_vshader = R"***(
@@ -104,7 +101,6 @@ void mglCheckErrors(const char* place)
 }
 
 
-
 HDC g_hDC = NULL;
 int g_width = 0;
 int g_height = 0;
@@ -120,7 +116,7 @@ bool initOpenGL(bool showWindow, int width, int height)
     WNDCLASSEXA wcex = {0};
 	wcex.cbSize = sizeof(WNDCLASSEX); 
 	wcex.style			= CS_OWNDC; //CS_HREDRAW | CS_VREDRAW;
-	wcex.lpfnWndProc	= (WNDPROC)WndProc;
+	wcex.lpfnWndProc	= (WNDPROC)OglWndProc;
 	wcex.hbrBackground	= NULL; //(HBRUSH)(COLOR_WINDOW+1);
 	wcex.lpszClassName	= MY_WND_CLS;
 
@@ -140,7 +136,7 @@ bool initOpenGL(bool showWindow, int width, int height)
     AdjustWindowRect(&rect, style, FALSE);
     //LOG("rect %d,%d,%d,%d", rect.top, rect.bottom, rect.left, rect.right);
 
-    HWND hWnd = CreateWindowA(MY_WND_CLS, "OGL", style, CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, 0,0,0,0);
+    HWND hWnd = CreateWindowA(MY_WND_CLS, "OGL", style, CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, NULL,0,0,0);
     if (hWnd == NULL) {
         LOG("Failed CreateWindowA");
         return false;
@@ -405,3 +401,5 @@ void runWindow()
 
     SwapBuffers(g_hDC); // front buffer to back so it could be read when saving to file
 }
+
+
