@@ -1,4 +1,4 @@
-//#define HAVE_ROUND
+#define HAVE_ROUND
 #undef _DEBUG
 #include <Python.h>
 #define _DEBUG
@@ -7,19 +7,6 @@
 #include "min_gui.h"
 
 
-/*
-static PyObject *set_img_size(PyObject *self, PyObject *args)
-{
-    int width = 0, height = 0;
-    if (!PyArg_ParseTuple(args, "ii", &width, &height))
-        return NULL;
-    if (!setImgSize(width, height)) {
-        PyErr_SetString(PyExc_RuntimeError, "setImgSize failed");
-        return NULL;
-    }
-    Py_RETURN_NONE;
-}*/
-
 
 static PyObject *init(PyObject *self, PyObject *args)
 {
@@ -27,7 +14,7 @@ static PyObject *init(PyObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "iii", &showWnd, &width, &height))
         return NULL;
 
-    if (!initOpenGL(showWnd, width, height)) {
+    if (!initOpenGL(showWnd != 0, width, height)) {
         PyErr_SetString(PyExc_RuntimeError, "initOpenGL failed");
         return NULL;
     }
@@ -46,6 +33,15 @@ static PyObject *compile_frag_shader(PyObject *self, PyObject *args)
         return NULL;
     }
     return Py_BuildValue("i", prog);
+}
+
+static PyObject *del_shader(PyObject *self, PyObject *args)
+{
+    int prog;
+    if (!PyArg_ParseTuple(args, "i", &prog))
+        return NULL;
+    delProgram(prog);
+    Py_RETURN_NONE;
 }
 
 static PyObject *in_img(PyObject *self, PyObject *args)
@@ -124,15 +120,27 @@ static void __stdcall sliderChanged(CtrlBase* id, int value)
 
 }
 
+const EResizeMode resizeMode(const char* s) {
+    if (strcmp(s, "None") == 0)
+        return RM_None;
+    if (strcmp(s, "Stretch") == 0)
+        return RM_Stretch;
+    if (strcmp(s, "Move") == 0)
+        return RM_Move;
+    return RM_None;
+}
+
 static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds)
 {
     int x = 0, y = 0, width = 0, height = 0;
     const char *type = NULL, *text = NULL;
     PyObject* callback = NULL;
     int isMultiline = 0;
+    // a tuple with two values each one of "None", "Stretch", "Move". controls what this widget does when the window is resized
+    const char *resizeXMode = NULL, *resizeYMode = NULL; 
 
-    static char* kwlist[] = {"type", "x", "y", "width", "height", "text", "callback", "isMultiline", NULL };
-    if (!PyArg_ParseTupleAndKeywords(args, keywds, "siiiisO|i", kwlist, &type, &x, &y, &width, &height, &text, &callback, &isMultiline))
+    static char* kwlist[] = {"type", "x", "y", "width", "height", "text", "callback", "isMultiline", "resizeMode", NULL };
+    if (!PyArg_ParseTupleAndKeywords(args, keywds, "siiiisO|i(ss)", kwlist, &type, &x, &y, &width, &height, &text, &callback, &isMultiline, &resizeXMode, &resizeYMode))
         return NULL;
 
     CtrlBase *ctrl;
@@ -166,6 +174,8 @@ static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds
     ctrl->initText = text;
     Py_XINCREF(callback);
     ctrl->userData = callback;
+    ctrl->resizeModeX = resizeMode(resizeXMode);
+    ctrl->resizeModeY = resizeMode(resizeYMode);
 
     mg_createCtrl(ctrl);
 
@@ -177,6 +187,7 @@ static PyMethodDef ImgShaderMethods[] = {
    // {"set_img_size",  set_img_size, METH_VARARGS, "Init image,window size"},
     {"init",  init, METH_VARARGS, "Init opengl"},
     {"compile_frag_shader", compile_frag_shader, METH_VARARGS, "compile"},
+    {"del_shader", del_shader, METH_VARARGS, "delete a shader"},
     {"in_img", in_img, METH_VARARGS, "input image"},
     {"out_img", out_img, METH_VARARGS, "output image" },
     {"render",  render, METH_VARARGS, "render"},

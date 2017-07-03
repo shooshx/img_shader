@@ -206,6 +206,8 @@ int compileFragShader(const char* fshader)
 
     glLinkProgram(prog);
 
+    LOG("Compile OK %d", prog);
+
     int loc_tex = glGetUniformLocation(prog, "intex");
     //LOG("tex loc %d", loc_tex);
     glUseProgram(prog); // meeded for glUniform
@@ -214,7 +216,16 @@ int compileFragShader(const char* fshader)
     mglCheckErrors("compile");
 
     return prog;
+}
 
+void delProgram(int prog)
+{
+    GLuint attached[2] = {0};
+    glGetAttachedShaders(prog, 2, NULL, attached);
+    glDeleteShader(attached[0]);
+    glDeleteShader(attached[1]);
+    glDeleteProgram(prog);
+    mglCheckErrors("del");
 }
 
 
@@ -342,7 +353,8 @@ void render(int prog, int img)
     
     glDrawElements(GL_TRIANGLES, indCount, GL_UNSIGNED_SHORT, 0);
 
-   // SwapBuffers(g_hDC);
+    if (g_showWindow)
+        SwapBuffers(g_hDC);
 
 
 };
@@ -378,7 +390,14 @@ bool outImg(const char* fmtname, int size, char* intoBuf)
     else
         return false;
 
+    if (g_showWindow)
+        SwapBuffers(g_hDC); // front buffer to back so it's readable
+    
     glReadPixels(0, 0, g_width, g_height, format, type, (void*)buf);
+
+    if (g_showWindow)
+        SwapBuffers(g_hDC); // back buffer to front so it's visible
+
 
     if (singleChan)
         for (int i = 0; i < size; ++i)
@@ -390,16 +409,12 @@ bool outImg(const char* fmtname, int size, char* intoBuf)
 
 void runWindow()
 {
-    SwapBuffers(g_hDC); // back buffer to front so it's visible
-
     MSG msg;
 	while (GetMessage(&msg, NULL, 0, 0)) 
 	{
 		TranslateMessage(&msg);
 		DispatchMessage(&msg);
 	} // TBD process ESC
-
-    SwapBuffers(g_hDC); // front buffer to back so it could be read when saving to file
 }
 
 

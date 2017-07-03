@@ -1,6 +1,8 @@
 #pragma once
 #include <windows.h>
 
+enum EResizeMode { RM_None= 0, RM_Stretch, RM_Move };
+
 struct CtrlBase {
     const char* type; // a value from "EDIT", "BUTTON", "SLIDER", "STATIC", "CHECKBOX"
     int id;       // unique identifier of this control
@@ -12,6 +14,8 @@ struct CtrlBase {
     DWORD styleex; // see http://msdn.microsoft.com/en-us/library/61fe4bte.aspx
     const char* initText;
     void* userData;
+    EResizeMode resizeModeX, resizeModeY;
+    int d_right, d_bottom; // for widgets that stick to the right/bottom, this is the distance to maintain from the edge
 };
 
 // styles: http://msdn.microsoft.com/en-us/library/windows/desktop/bb775464(v=vs.85).aspx
