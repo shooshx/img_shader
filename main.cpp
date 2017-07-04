@@ -4,6 +4,7 @@
 
 #include <gl/glew.h>
 #include "img_shader.h"
+#include "SimpleMap.h"
 
 
 #define CHECK_GL_ERR
@@ -177,7 +178,6 @@ bool initOpenGL(bool showWindow, int width, int height)
     }
 
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-    glActiveTexture(GL_TEXTURE0);
    // glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
    // SwapBuffers(hDC);
 
@@ -208,10 +208,8 @@ int compileFragShader(const char* fshader)
 
     LOG("Compile OK %d", prog);
 
-    int loc_tex = glGetUniformLocation(prog, "intex");
     //LOG("tex loc %d", loc_tex);
     glUseProgram(prog); // meeded for glUniform
-    glUniform1i(loc_tex, 0);
 
     mglCheckErrors("compile");
 
@@ -265,7 +263,10 @@ int elemSize(const char* fmtname) {
     return 0;
 }
 
-int inImg(const char* fmtname, int size, const char* buf)
+
+SimpleMap<int, const char*, 20> g_tex2varname;
+
+int inImg(const char* fmtname, int size, const char* buf, const char* varname)
 {
     int needSz = g_width * g_height * elemSize(fmtname);
     if (size != needSz) {
@@ -317,13 +318,15 @@ int inImg(const char* fmtname, int size, const char* buf)
 
     mglCheckErrors("tex");
 
+    g_tex2varname.set(tex, varname);
+
     return (int)tex;
 }
 
 
 
 
-void render(int prog, int img)
+void render(int prog)
 {
      glUseProgram(prog);
 
@@ -348,8 +351,19 @@ void render(int prog, int img)
     glEnableVertexAttribArray(ATTR_VTX);
     glVertexAttribPointer(ATTR_VTX, 3, GL_FLOAT, FALSE, 0, 0);
 
-    //LOG("tex obj %d", img);
-    glBindTexture(GL_TEXTURE_2D, img);
+    glUseProgram(prog); // meeded for glUniform
+
+    int i = 0;
+    for(const auto& kv: g_tex2varname)
+    {
+        int loc_tex = glGetUniformLocation(prog, kv.value);
+
+        glActiveTexture(GL_TEXTURE0 + i);
+        glBindTexture(GL_TEXTURE_2D, kv.key);
+
+        LOG("tex loc %d for tex %d", loc_tex, kv.key);
+        glUniform1i(loc_tex, i);
+    }
     
     glDrawElements(GL_TRIANGLES, indCount, GL_UNSIGNED_SHORT, 0);
 

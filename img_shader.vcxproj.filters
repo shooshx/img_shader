@@ -8,5 +8,6 @@
   <ItemGroup>
     <ClInclude Include="img_shader.h" />
     <ClInclude Include="min_gui.h" />
+    <ClInclude Include="SimpleMap.h" />
   </ItemGroup>
 </Project>

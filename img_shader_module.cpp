@@ -1,5 +1,7 @@
-#define HAVE_ROUND
-#undef _DEBUG
+#if _MSC_VER < 1900
+    #define HAVE_ROUND
+#endif
+#undef _DEBUG // take python release
 #include <Python.h>
 #define _DEBUG
 
@@ -47,11 +49,10 @@ static PyObject *del_shader(PyObject *self, PyObject *args)
 static PyObject *in_img(PyObject *self, PyObject *args)
 {
     int sz = 0;
-    const char *format = NULL;
-    const char *data = NULL;
-    if (!PyArg_ParseTuple(args, "ss#", &format, &data, &sz))
+    const char *format = NULL, *data = NULL, *varname = NULL;
+    if (!PyArg_ParseTuple(args, "ss#s", &format, &data, &sz, &varname))
         return NULL;
-    int img = inImg(format, sz, data);
+    int img = inImg(format, sz, data, varname);
     if (img == -1) {
         PyErr_SetString(PyExc_RuntimeError, "Failed reading image");
         return NULL;
@@ -81,11 +82,11 @@ static PyObject *out_img(PyObject *self, PyObject *args)
 
 static PyObject *render(PyObject *self, PyObject *args)
 {
-    int prog = 0, tex = 0;
-    if (!PyArg_ParseTuple(args, "ii", &prog, &tex))
+    int prog = 0;
+    if (!PyArg_ParseTuple(args, "i", &prog))
         return NULL;
 
-    render(prog, tex);
+    render(prog);
     Py_RETURN_NONE;
 }
 
