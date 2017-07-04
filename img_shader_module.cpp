@@ -1,7 +1,7 @@
 #if _MSC_VER < 1900
     #define HAVE_ROUND
 #endif
-#undef _DEBUG // take python release
+#undef _DEBUG // take python de
 #include <Python.h>
 #define _DEBUG
 
@@ -96,6 +96,7 @@ static PyObject *run_window(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
 }
 
+// ------------ min_gui_module ------------
 
 static PyObject *create_control_window(PyObject *self, PyObject *args)
 {
@@ -115,11 +116,91 @@ static void __stdcall editTextChanged(CtrlBase* id, const char* text)
 }
 static void __stdcall buttonClicked(CtrlBase* id)
 {
+    PyObject *arglist = Py_BuildValue("()");
+    PyObject *result = PyEval_CallObject((PyObject*)id->userData, arglist);
+    Py_DECREF(arglist);
 }
 static void __stdcall sliderChanged(CtrlBase* id, int value)
 {
-
 }
+static void __stdcall checkboxChanged(CtrlBase* id, bool val)
+{
+    PyObject *arglist = Py_BuildValue("(i)", val);
+    PyObject *result = PyEval_CallObject((PyObject*)id->userData, arglist);
+    Py_DECREF(arglist);
+}
+
+struct Ctrl {
+    PyObject_HEAD
+    CtrlBase* c;
+};
+
+static PyObject *Ctrl_value(Ctrl* self) {
+    if (strcmp(self->c->type, "CHECKBOX") == 0)
+        return Py_BuildValue("i", mg_getInt(self->c));
+
+    if (strcmp(self->c->type, "EDIT") == 0) {
+        int sz = mg_getText(self->c, 0, NULL);
+        PyObject* str = PyString_FromStringAndSize(NULL, sz);
+        char* buf = PyString_AS_STRING(str);
+        mg_getText(self->c, sz, buf);
+        _PyString_Resize(&str, sz-1); // get tid of the null termination added
+        return str;
+    }
+    Py_RETURN_NONE;
+}
+static void Ctrl_dealloc(Ctrl* self)
+{
+    Py_TYPE(self)->tp_free((PyObject*)self);
+}
+
+
+static PyMethodDef Ctrl_methods[] = {
+    { "value", (PyCFunction)Ctrl_value, METH_NOARGS, "get the value" },
+    { NULL }  /* Sentinel */
+};
+static PyTypeObject CtrlType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    "img_shader.Ctrl",             /* tp_name */
+    sizeof(Ctrl),             /* tp_basicsize */
+    0,                         /* tp_itemsize */
+    (destructor)Ctrl_dealloc, /* tp_dealloc */
+    0,                         /* tp_print */
+    0,                         /* tp_getattr */
+    0,                         /* tp_setattr */
+    0,                         /* tp_compare */
+    0,                         /* tp_repr */
+    0,                         /* tp_as_number */
+    0,                         /* tp_as_sequence */
+    0,                         /* tp_as_mapping */
+    0,                         /* tp_hash */
+    0,                         /* tp_call */
+    0,                         /* tp_str */
+    0,                         /* tp_getattro */
+    0,                         /* tp_setattro */
+    0,                         /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT |
+    Py_TPFLAGS_BASETYPE,   /* tp_flags */
+    "Ctrl objects",           /* tp_doc */
+    0,                         /* tp_traverse */
+    0,                         /* tp_clear */
+    0,                         /* tp_richcompare */
+    0,                         /* tp_weaklistoffset */
+    0,                         /* tp_iter */
+    0,                         /* tp_iternext */
+    Ctrl_methods,             /* tp_methods */
+    0,             /* tp_members */
+    0,                         /* tp_getset */
+    0,                         /* tp_base */
+    0,                         /* tp_dict */
+    0,                         /* tp_descr_get */
+    0,                         /* tp_descr_set */
+    0,                         /* tp_dictoffset */
+    0,      /* tp_init */
+    0,                         /* tp_alloc */
+    0,                 /* tp_new */
+};
+
 
 const EResizeMode resizeMode(const char* s) {
     if (strcmp(s, "None") == 0)
@@ -144,7 +225,7 @@ static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds
     if (!PyArg_ParseTupleAndKeywords(args, keywds, "siiiisO|i(ss)", kwlist, &type, &x, &y, &width, &height, &text, &callback, &isMultiline, &resizeXMode, &resizeYMode))
         return NULL;
 
-    CtrlBase *ctrl;
+    CtrlBase *ctrl = NULL;
     if (strcmp(type, "EDIT") == 0) {
         auto ectrl = (EditCtrl*)malloc(sizeof(EditCtrl));
         ctrl = &ectrl->c;
@@ -159,12 +240,24 @@ static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds
         memset(ctrl, 0, sizeof(StaticCtrl));
     }
     else if (strcmp(type, "BUTTON") == 0) {
-        ctrl = (CtrlBase*)malloc(sizeof(ButtonCtrl));
+        auto ectrl = (ButtonCtrl*)malloc(sizeof(ButtonCtrl));
+        ctrl = &ectrl->c;
         memset(ctrl, 0, sizeof(ButtonCtrl));
+        ectrl->clicked = buttonClicked;
     }
     else if (strcmp(type, "SLIDER") == 0) {
         ctrl = (CtrlBase*)malloc(sizeof(SliderCtrl));
         memset(ctrl, 0, sizeof(SliderCtrl));
+    }
+    else if (strcmp(type, "CHECKBOX") == 0) {
+        auto ectrl = (CheckBoxCtrl*)malloc(sizeof(CheckBoxCtrl));
+        ctrl = &ectrl->c;
+        memset(ctrl, 0, sizeof(CheckBoxCtrl));
+        ectrl->changed = checkboxChanged;
+    }
+    else {
+        PyErr_SetString(PyExc_RuntimeError, "Unknown type");
+        return NULL;
     }
 
     ctrl->x = x;
@@ -178,9 +271,11 @@ static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds
     ctrl->resizeModeX = resizeMode(resizeXMode);
     ctrl->resizeModeY = resizeMode(resizeYMode);
 
-    mg_createCtrl(ctrl);
+    mg_createCtrl((CtrlBase*)ctrl);
 
-    Py_RETURN_NONE;
+    Ctrl *ret = (Ctrl *)CtrlType.tp_alloc(&CtrlType, 0);
+    ret->c = ctrl;
+    return (PyObject *)ret;
 }
 
 
@@ -199,9 +294,20 @@ static PyMethodDef ImgShaderMethods[] = {
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
+
+
+
+
+
 PyMODINIT_FUNC initimg_shader(void)
 {
+    if (PyType_Ready(&CtrlType) < 0)
+        return;
+
     PyObject *m = Py_InitModule3("img_shader", ImgShaderMethods, "OpenGL module");
     if (m == NULL)
         return;
+
+    Py_INCREF(&CtrlType);
+    PyModule_AddObject(m, "Ctrl", (PyObject *)&CtrlType);
 }

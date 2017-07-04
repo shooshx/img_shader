@@ -14,6 +14,7 @@ struct CtrlBase {
     DWORD styleex; // see http://msdn.microsoft.com/en-us/library/61fe4bte.aspx
     const char* initText;
     void* userData;
+    HWND hwnd;
     EResizeMode resizeModeX, resizeModeY;
     int d_right, d_bottom; // for widgets that stick to the right/bottom, this is the distance to maintain from the edge
 };
@@ -43,5 +44,9 @@ struct SliderCtrl {
 };
 
 HWND __stdcall mg_createCtrlWindow(int width, int height);
-HWND __stdcall mg_createCtrl(void* c);
+HWND __stdcall mg_createCtrl(CtrlBase* c);
+
+// for the getting the value stored in a widget
+const int mg_getText(CtrlBase* c, int buflen, char* buf);
+const int mg_getInt(CtrlBase* c);
 

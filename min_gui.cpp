@@ -2,6 +2,7 @@
 
 #include <CommCtrl.h>
 #include <stdio.h>
+#include <Windowsx.h>  // for Button_GetCheck
 
 void handleWmCommand(DWORD notify, HWND hwnd, DWORD v)
 {
@@ -34,7 +35,16 @@ void handleWmCommand(DWORD notify, HWND hwnd, DWORD v)
             }
         }
     }
-    else if (lstrcmpA(obj->type, TRACKBAR_CLASSA) == 0) {
+    else if (lstrcmpA(obj->type, "CHECKBOX") == 0) {
+        auto that = (CheckBoxCtrl*)obj;
+        if (notify == BN_CLICKED) {
+            if (that->changed != NULL) {
+                auto val = Button_GetCheck(that->c.hwnd);
+                that->changed(&that->c, val == BST_CHECKED);
+            }
+        }
+    }
+    else if (lstrcmpA(obj->type, "SLIDER") == 0) {
         auto that = (SliderCtrl*)obj;
         if (notify == WM_HSCROLL) {
             int req = LOWORD(v);
@@ -64,13 +74,17 @@ BOOL CALLBACK enumChildProc(HWND hwnd, LPARAM lParam)
     if (c->resizeModeX == RM_Stretch) {
         c->width = newSize->w - c->d_right - c->x;
     }
+    else if (c->resizeModeX == RM_Move) {
+        c->x = newSize->w - c->d_right - c->width;
+    }
     if (c->resizeModeY == RM_Stretch) {
         c->height = newSize->h - c->d_bottom - c->y;
     }
-
+    else if (c->resizeModeY == RM_Move) {
+        c->y = newSize->h - c->d_bottom - c->height;
+    }
 
     MoveWindow(hwnd, c->x, c->y, c->width, c->height, TRUE);
-
     return TRUE;
 }
 
@@ -144,17 +158,23 @@ HWND __stdcall mg_createCtrlWindow(int width, int height)
     return g_controlDlg;
 }
 
-HWND __stdcall mg_createCtrl(void* vc)
+int g_id_counter = 1000;
+
+HWND __stdcall mg_createCtrl(CtrlBase* c)
 {
-    auto* c = (CtrlBase*)vc;
+    const char* cls = c->type;
     if (lstrcmpA(c->type, "SLIDER") == 0) {
-        c->type = TRACKBAR_CLASSA;
+        cls = TRACKBAR_CLASSA;
     }
     if (lstrcmpA(c->type, "CHECKBOX") == 0) {
-        c->type = "BUTTON";
-        c->style |= BS_CHECKBOX;
+        cls = "BUTTON";
+        c->style |= BS_AUTOCHECKBOX;
     }
-    HWND hw = CreateWindowExA(c->styleex, c->type, c->initText, WS_CHILD | WS_VISIBLE | c->style, c->x, c->y, c->width, c->height, g_controlDlg, (HMENU)(uintptr_t)c->id, NULL, NULL);
+    if (c->id == 0)
+        c->id = g_id_counter;
+    ++g_id_counter;
+    HWND hw = CreateWindowExA(c->styleex, cls, c->initText, WS_CHILD | WS_VISIBLE | c->style, c->x, c->y, c->width, c->height, g_controlDlg, (HMENU)(uintptr_t)c->id, NULL, NULL);
+    c->hwnd = hw;
     SetWindowLongPtr(hw, GWLP_USERDATA, (ULONG_PTR)c);
 
     SendMessage(hw, WM_SETFONT, (WPARAM)GetStockObject(SYSTEM_FIXED_FONT), TRUE);
@@ -170,3 +190,39 @@ HWND __stdcall mg_createCtrl(void* vc)
 
     return hw;
 }
+
+
+const int mg_getText(CtrlBase* c, int buflen, char* buf)
+{
+    if (buf == NULL)
+        return GetWindowTextLength(c->hwnd) + 1;
+    return GetWindowTextA(c->hwnd, buf, buflen);
+}
+const int mg_getInt(CtrlBase* c)
+{
+    if (lstrcmpA(c->type, "CHECKBOX") == 0) {
+        auto val = Button_GetCheck(c->hwnd);
+        return (val == BST_CHECKED);
+    }
+    return 0;
+}
+
+
+bool mg_getOpenFileName(const char* title, const char* filter, char output[MAX_PATH])
+{
+    OPENFILENAMEA ofn;
+    memset(&ofn, 0, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_controlDlg;
+    ofn.lpstrFilter = filter;
+    ofn.lpstrFile = output;
+    output[0] = 0;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = title;
+    ofn.Flags = OFN_PATHMUSTEXIST;
+
+    return GetOpenFileNameA(&ofn);
+}
+
+
+// IsDlgButtonChecked
