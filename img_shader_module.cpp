@@ -12,11 +12,11 @@
 
 static PyObject *init(PyObject *self, PyObject *args)
 {
-    int showWnd = 0, width = 0, height = 0;
-    if (!PyArg_ParseTuple(args, "iii", &showWnd, &width, &height))
+    int showWnd = 0;
+    if (!PyArg_ParseTuple(args, "i", &showWnd))
         return NULL;
 
-    if (!initOpenGL(showWnd != 0, width, height)) {
+    if (!initOpenGL(showWnd != 0)) {
         PyErr_SetString(PyExc_RuntimeError, "initOpenGL failed");
         return NULL;
     }
@@ -48,11 +48,15 @@ static PyObject *del_shader(PyObject *self, PyObject *args)
 
 static PyObject *in_img(PyObject *self, PyObject *args)
 {
-    int sz = 0;
+    int sz = 0, width=0, height=0;
     const char *format = NULL, *data = NULL, *varname = NULL;
-    if (!PyArg_ParseTuple(args, "ss#s", &format, &data, &sz, &varname))
+    if (!PyArg_ParseTuple(args, "s(ii)s#s", &format, &width, &height, &data, &sz, &varname))
         return NULL;
-    int img = inImg(format, sz, data, varname);
+    if (sz != width * height * elemSize(format)) {
+        PyErr_SetString(PyExc_RuntimeError, "Wrong buffer size");
+        return NULL;
+    }
+    int img = inImg(format, width, height, data, varname);
     if (img == -1) {
         PyErr_SetString(PyExc_RuntimeError, "Failed reading image");
         return NULL;
@@ -82,11 +86,11 @@ static PyObject *out_img(PyObject *self, PyObject *args)
 
 static PyObject *render(PyObject *self, PyObject *args)
 {
-    int prog = 0;
-    if (!PyArg_ParseTuple(args, "i", &prog))
+    int prog = 0, width = 0, height = 0;
+    if (!PyArg_ParseTuple(args, "i(ii)", &prog, &width, &height))
         return NULL;
 
-    render(prog);
+    render(prog, width, height);
     Py_RETURN_NONE;
 }
 
@@ -149,6 +153,21 @@ static PyObject *Ctrl_value(Ctrl* self) {
     }
     Py_RETURN_NONE;
 }
+
+static PyObject *Ctrl_setValue(Ctrl *self, PyObject *args)
+{
+    if (strcmp(self->c->type, "EDIT") == 0) {
+        const char *v = NULL;
+        if (!PyArg_ParseTuple(args, "s", &v))
+            return NULL;
+        mg_setText(self->c, v);
+        Py_RETURN_NONE;
+    }
+
+    PyErr_SetString(PyExc_RuntimeError, "can't set value");
+    return NULL;
+}
+
 static void Ctrl_dealloc(Ctrl* self)
 {
     Py_TYPE(self)->tp_free((PyObject*)self);
@@ -157,6 +176,7 @@ static void Ctrl_dealloc(Ctrl* self)
 
 static PyMethodDef Ctrl_methods[] = {
     { "value", (PyCFunction)Ctrl_value, METH_NOARGS, "get the value" },
+    { "setValue", (PyCFunction)Ctrl_setValue, METH_VARARGS, "set the value" },
     { NULL }  /* Sentinel */
 };
 static PyTypeObject CtrlType = {
@@ -278,6 +298,32 @@ static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds
     return (PyObject *)ret;
 }
 
+static PyObject *file_dlg(PyObject *self, PyObject *args)
+{
+    const char *title = NULL, *filter = NULL, *type = NULL;
+    int filterSz = 0;
+    if (!PyArg_ParseTuple(args, "sss#", &type, &title, &filter, &filterSz))
+        return NULL;
+
+    PyObject* str = PyString_FromStringAndSize(NULL, MAX_PATH);
+    char* buf = PyString_AS_STRING(str);
+
+    if (strcmp(type, "Open") == 0) {
+        if (!mg_getOpenFileName(title, filter, buf)) {
+            Py_XDECREF(str);
+            Py_RETURN_NONE;
+        }
+        auto len = strlen(buf);
+        _PyString_Resize(&str, len); // get tid of the null termination added
+        return str;
+    }
+    else {
+        Py_XDECREF(str);
+        PyErr_SetString(PyExc_RuntimeError, "Unknown type");
+        return NULL;
+    }
+}
+
 
 static PyMethodDef ImgShaderMethods[] = {
    // {"set_img_size",  set_img_size, METH_VARARGS, "Init image,window size"},
@@ -291,6 +337,7 @@ static PyMethodDef ImgShaderMethods[] = {
 
     {"create_control_window", create_control_window, METH_VARARGS, "create parent window for all controls" },
     {"create_control", (PyCFunction)create_control, METH_VARARGS| METH_KEYWORDS, "child control window" },
+    {"file_dlg", file_dlg, METH_VARARGS, "Open file dialog"},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

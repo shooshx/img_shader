@@ -103,8 +103,10 @@ void mglCheckErrors(const char* place)
 
 
 HDC g_hDC = NULL;
-int g_width = 0;
-int g_height = 0;
+HWND g_hWnd = NULL;
+int g_width = 160;
+int g_height = 160;
+DWORD g_wndStyle = 0;
 bool g_showWindow = false;
 
 void getSize(int* width, int* height) {
@@ -112,7 +114,7 @@ void getSize(int* width, int* height) {
     *height = g_height;
 }
 
-bool initOpenGL(bool showWindow, int width, int height)
+bool initOpenGL(bool showWindow)
 {
     WNDCLASSEXA wcex = {0};
 	wcex.cbSize = sizeof(WNDCLASSEX); 
@@ -126,18 +128,16 @@ bool initOpenGL(bool showWindow, int width, int height)
         return false;
     }
 
-    g_width = width;
-    g_height = height;
     g_showWindow = showWindow;
 
-    DWORD style = WS_SYSMENU | WS_MINIMIZEBOX | WS_OVERLAPPED | WS_CAPTION;
-    if (width < 150)
-        style = WS_POPUP; // the title bar would streach it
-    RECT rect = {0,0,width,height };
-    AdjustWindowRect(&rect, style, FALSE);
+    g_wndStyle = WS_SYSMENU | WS_MINIMIZEBOX | WS_OVERLAPPED | WS_CAPTION;
+  //  if (width < 150)
+  //      style = WS_POPUP; // the title bar would streach it don't do now becuase render really sets the size
+    RECT rect = {0,0,g_width,g_height};
+    AdjustWindowRect(&rect, g_wndStyle, FALSE);
     //LOG("rect %d,%d,%d,%d", rect.top, rect.bottom, rect.left, rect.right);
 
-    HWND hWnd = CreateWindowA(MY_WND_CLS, "OGL", style, CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, NULL,0,0,0);
+    HWND hWnd = CreateWindowA(MY_WND_CLS, "OGL", g_wndStyle, CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, NULL,0,0,0);
     if (hWnd == NULL) {
         LOG("Failed CreateWindowA");
         return false;
@@ -145,6 +145,7 @@ bool initOpenGL(bool showWindow, int width, int height)
 
     HDC hDC = GetDC(hWnd);
     g_hDC = hDC;
+    g_hWnd = hWnd;
 
     PIXELFORMATDESCRIPTOR pfd = {
 	        sizeof(PIXELFORMATDESCRIPTOR),
@@ -227,27 +228,18 @@ void delProgram(int prog)
 }
 
 
-/*
-bool setImgSize(int width, int height)
-{
-    if (g_width != 0 || g_height != 0)
-        return false;
-    if (width == 0 || height == 0)
-        return false;
-    g_width = width;
-    g_height = height;
-    return true;
-}
-*/
 
 
 // converting to RGBA because loading a single channel texture of non power of 2 has a problem
 char *g_convertBuf = NULL;
 int g_convBufSz = 0;
 
-void ensureConvBuf() {
-    if (g_convertBuf == NULL) {
-        g_convBufSz = g_width * g_height * 4;
+void ensureConvBuf(int width, int height) {
+    int needSz = width * height * 4;
+    if (g_convertBuf == NULL || g_convBufSz != needSz) {
+        if (g_convertBuf != NULL)
+            free(g_convertBuf);
+        g_convBufSz = needSz;
         g_convertBuf = (char*)malloc(g_convBufSz);
     }
 }
@@ -264,20 +256,16 @@ int elemSize(const char* fmtname) {
 }
 
 
-SimpleMap<int, const char*, 20> g_tex2varname;
+SimpleMap<int, const char*, 100> g_tex2varname;
 
-int inImg(const char* fmtname, int size, const char* buf, const char* varname)
+int inImg(const char* fmtname, int width, int height, const char* buf, const char* varname)
 {
-    int needSz = g_width * g_height * elemSize(fmtname);
-    if (size != needSz) {
-        LOG("Wrong size! %d != %d (%d*%d)", size, needSz, g_width, g_height);
-        return -1;
-    }
+    int size = width * height * elemSize(fmtname);
 
     int internal_format = 0, format = 0, type = 0;
     if (strcmp(fmtname, "L") == 0)
     {
-        ensureConvBuf();
+        ensureConvBuf(width, height);
         memset(g_convertBuf, 0, g_convBufSz);
         for(int i = 0; i < size; ++i)
             g_convertBuf[i*4] = buf[i];
@@ -299,7 +287,7 @@ int inImg(const char* fmtname, int size, const char* buf, const char* varname)
         type = GL_UNSIGNED_BYTE;
     }
     else
-        return false;
+        return -1;
 
     unsigned int tex = 0;
     glGenTextures(1, &tex);
@@ -308,7 +296,7 @@ int inImg(const char* fmtname, int size, const char* buf, const char* varname)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
 
-    glTexImage2D(GL_TEXTURE_2D, 0, internal_format, g_width, g_height, 0, format, type, buf);
+    glTexImage2D(GL_TEXTURE_2D, 0, internal_format, width, height, 0, format, type, buf);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -318,7 +306,10 @@ int inImg(const char* fmtname, int size, const char* buf, const char* varname)
 
     mglCheckErrors("tex");
 
-    g_tex2varname.set(tex, varname);
+    if (!g_tex2varname.set(tex, varname)) {
+        LOG("No more space in texture table");
+        return -1;
+    }
 
     return (int)tex;
 }
@@ -326,27 +317,44 @@ int inImg(const char* fmtname, int size, const char* buf, const char* varname)
 
 
 
-void render(int prog)
+void render(int prog, int width, int height)
 {
-     glUseProgram(prog);
+    if (width != g_width || height != g_height) 
+    {
+        RECT origPos = {0};
+        GetWindowRect(g_hWnd, &origPos);
+        //  if (width < 150)
+        //      style = WS_POPUP; // the title bar would streach it
+        RECT rect = { 0,0,width,height };
+        AdjustWindowRect(&rect, g_wndStyle, FALSE);
 
-    float vtxData[] = { 1.0f, -1.0f,  0.0f, -1.0f,  1.0f,  0.0f, -1.0f, -1.0f,  0.0f, 1.0f,  1.0f,  0.0f };
-    //float vtxData[] = { 0.5f, -0.5f,  0.0f, -0.5f,  0.5f,  0.0f, -0.5f, -0.5f,  0.0f, 0.5f,  0.5f,  0.0f };
-    int vtxCount = 4;
-    short indData[] = {
-        1, 2, 3,
-        3, 2, 0
-    };
-    int indCount = 6;
+        MoveWindow(g_hWnd, origPos.left, origPos.top, rect.right - rect.left, rect.bottom - rect.top, TRUE);
+        g_width = width;
+        g_height = height;
+
+        glViewport(0, 0, width, height);
+    }
+
+    glUseProgram(prog);
 
     unsigned int vtxBuf = 0;
-    glGenBuffers(1, &vtxBuf);
-    glBindBuffer(GL_ARRAY_BUFFER, vtxBuf);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vtxData), vtxData, GL_STATIC_DRAW);
     unsigned int indBuf = 0;
-    glGenBuffers(1, &indBuf);
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indBuf);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indData), indData, GL_STATIC_DRAW);
+    int indCount = 0;
+
+    if (vtxBuf == 0)
+    {
+        float vtxData[] = { 1.0f, -1.0f,  0.0f, -1.0f,  1.0f,  0.0f, -1.0f, -1.0f,  0.0f, 1.0f,  1.0f,  0.0f };
+        //float vtxData[] = { 0.5f, -0.5f,  0.0f, -0.5f,  0.5f,  0.0f, -0.5f, -0.5f,  0.0f, 0.5f,  0.5f,  0.0f };
+        short indData[] = { 1, 2, 3, 3, 2, 0 };
+        indCount = 6;
+
+        glGenBuffers(1, &vtxBuf);
+        glBindBuffer(GL_ARRAY_BUFFER, vtxBuf);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(vtxData), vtxData, GL_STATIC_DRAW);
+        glGenBuffers(1, &indBuf);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indBuf);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indData), indData, GL_STATIC_DRAW);
+    }
 
     glEnableVertexAttribArray(ATTR_VTX);
     glVertexAttribPointer(ATTR_VTX, 3, GL_FLOAT, FALSE, 0, 0);
@@ -385,7 +393,7 @@ bool outImg(const char* fmtname, int size, char* intoBuf)
     int format = 0, type = 0;
 
     if (strcmp(fmtname, "L") == 0) {
-        ensureConvBuf();
+        ensureConvBuf(g_width, g_height);
         buf = g_convertBuf;
         singleChan = true;
         format = GL_RGBA;

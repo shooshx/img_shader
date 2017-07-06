@@ -192,19 +192,23 @@ HWND __stdcall mg_createCtrl(CtrlBase* c)
 }
 
 
-const int mg_getText(CtrlBase* c, int buflen, char* buf)
+int mg_getText(CtrlBase* c, int buflen, char* buf)
 {
     if (buf == NULL)
         return GetWindowTextLength(c->hwnd) + 1;
     return GetWindowTextA(c->hwnd, buf, buflen);
 }
-const int mg_getInt(CtrlBase* c)
+int mg_getInt(CtrlBase* c)
 {
     if (lstrcmpA(c->type, "CHECKBOX") == 0) {
         auto val = Button_GetCheck(c->hwnd);
         return (val == BST_CHECKED);
     }
     return 0;
+}
+void mg_setText(CtrlBase* c, const char* buf) 
+{
+    SetWindowTextA(c->hwnd, buf);
 }
 
 
@@ -221,7 +225,8 @@ bool mg_getOpenFileName(const char* title, const char* filter, char output[MAX_P
     ofn.lpstrTitle = title;
     ofn.Flags = OFN_PATHMUSTEXIST;
 
-    return GetOpenFileNameA(&ofn);
+    auto ret = GetOpenFileNameA(&ofn);
+    return ret;
 }
 
 

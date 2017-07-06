@@ -26,19 +26,19 @@ def main():
     print inimg
     inimgstr = inimg.tobytes()
     
-    img_shader.init(True, inimg.size[0], inimg.size[1])
+    img_shader.init(False)
     prog = img_shader.compile_frag_shader(frag_src)
     
-    img_shader.in_img(inimg.mode, inimgstr, "intex")
-    img_shader.in_img(inimg.mode, inimgstr, "in2")
+    img_shader.in_img(inimg.mode, inimg.size, inimgstr, "intex")
+    img_shader.in_img(inimg.mode, inimg.size, inimgstr, "in2")
 
-    img_shader.render(prog)
+    img_shader.render(prog, inimg.size)
     outimgbuf = img_shader.out_img(inimg.mode)
 	
     outimg = Image.frombytes(inimg.mode, inimg.size, outimgbuf)
     outimg.save(os.path.join(this_dir, "test/out.png"))
 
-    img_shader.run_window()
+    #img_shader.run_window()
 
     check_diff(inimgstr, outimgbuf)
 

@@ -24,9 +24,16 @@ imgpath = os.path.join(this_dir, "test/gray_test.png")
 prog = None
 compileBox = None
 srcEdit = None
+fileEdit = None
+inimg = None
 
 def filenameChanged(name):
-    print name
+    print "FILE",name
+    inimg = Image.open(name)
+    print inimg
+    img_shader.in_img(inimg.mode, inimg.size, inimg.tobytes(), 'intex')
+    img_shader.render(prog, inimg.size)
+
 
 def shaderChanged(frag_src):
     if not compileBox.value():
@@ -35,27 +42,25 @@ def shaderChanged(frag_src):
     if prog is not None:
         img_shader.del_shader(prog)
     prog = img_shader.compile_frag_shader(frag_src)
-    img_shader.render(prog)
+    img_shader.render(prog, inimg.size)
 
 def compileChecked(val):
     if val:
-        try:
-            shaderChanged(srcEdit.value())
-        except Exception as e:
-            print e
+        shaderChanged(srcEdit.value())
+
 def inputBrowse():
-    print "browse"
+    name = img_shader.file_dlg("Open", "Open Image File", "Image Files\0*.png;*.jpg;*.tiff\0\0\0")
+    if name is not None:
+        fileEdit.setValue(name)
 
 def main():
-    global compileBox, srcEdit
-    inimg = Image.open(imgpath)
+    global compileBox, srcEdit, fileEdit, inimg
 
+    img_shader.init(True)
+    
+    inimg = Image.open(imgpath)
     print inimg
-    inimgstr = inimg.tobytes()
-    
-    img_shader.init(True, inimg.size[0], inimg.size[1])
-    
-    img_shader.in_img(inimg.mode, inimgstr, 'intex')
+    img_shader.in_img(inimg.mode, inimg.size, inimg.tobytes(), 'intex')
 
     #outimgbuf = img_shader.out_img(inimg.mode)
 	
@@ -63,7 +68,7 @@ def main():
     #outimg.save(os.path.join(this_dir, "test/out.png"))
 
     img_shader.create_control_window(400, 600)
-    img_shader.create_control("EDIT", 5, 5, 350, 30, imgpath, filenameChanged, resizeMode=('Stretch','None'))
+    fileEdit = img_shader.create_control("EDIT", 5, 5, 350, 30, imgpath, filenameChanged, resizeMode=('Stretch','None'))
     img_shader.create_control("BUTTON", 360, 5, 35, 30, "...", inputBrowse, resizeMode=('Move', 'None'))
     srcEdit = img_shader.create_control("EDIT", 5, 40, 390, 510, frag_init.replace('\n','\r\n'), shaderChanged, isMultiline=True, resizeMode=('Stretch','Stretch'))
     compileBox = img_shader.create_control("CHECKBOX", 5, 555, 100, 20, "Compile", compileChecked, resizeMode=('None', 'Move'))

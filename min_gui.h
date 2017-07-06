@@ -47,6 +47,8 @@ HWND __stdcall mg_createCtrlWindow(int width, int height);
 HWND __stdcall mg_createCtrl(CtrlBase* c);
 
 // for the getting the value stored in a widget
-const int mg_getText(CtrlBase* c, int buflen, char* buf);
-const int mg_getInt(CtrlBase* c);
+int mg_getText(CtrlBase* c, int buflen, char* buf);
+int mg_getInt(CtrlBase* c);
+void mg_setText(CtrlBase* c, const char* buf);
 
+bool mg_getOpenFileName(const char* title, const char* filter, char output[MAX_PATH]);

@@ -15,6 +15,11 @@ public:
         memset(m_kv, 0, sizeof(m_kv));
     }
     bool set(K k, V v) {
+        for (int i = 0; i < MaxSZ; ++i)
+            if (m_kv[i].key == k) {
+                m_kv[i].value = v;
+                return true;
+            }
         for(int i = 0; i < MaxSZ; ++i)
             if (!m_kv[i].occupied) {
                 m_kv[i] = Pair{k,v,true};
