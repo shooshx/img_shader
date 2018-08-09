@@ -15,6 +15,7 @@ struct CtrlBase {
     const char* initText;
     void* userData;
     HWND hwnd;
+    HWND parent;
     EResizeMode resizeModeX, resizeModeY;
     int d_right, d_bottom; // for widgets that stick to the right/bottom, this is the distance to maintain from the edge
 };
@@ -41,6 +42,14 @@ struct StaticCtrl {
 struct SliderCtrl {
     CtrlBase c;
     void(__stdcall *changed)(CtrlBase* id, int value);
+    int vMin;
+    int vMax;
+};
+
+struct OGLCtrl {
+    CtrlBase c;
+    HDC hDC;
+    HGLRC glrc;
 };
 
 HWND __stdcall mg_createCtrlWindow(int width, int height);
@@ -52,3 +61,11 @@ int mg_getInt(CtrlBase* c);
 void mg_setText(CtrlBase* c, const char* buf);
 
 bool mg_getOpenFileName(const char* title, const char* filter, char output[MAX_PATH]);
+
+
+struct WndTimer {
+    void(__stdcall *callback)(WndTimer* id);
+    void* py_callback;
+};
+
+void mg_setTimer(int msec, WndTimer* t);

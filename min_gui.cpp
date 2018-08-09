@@ -1,4 +1,5 @@
 #include "min_gui.h"
+#include "img_shader.h"
 
 #include <CommCtrl.h>
 #include <stdio.h>
@@ -97,6 +98,7 @@ void handleResize(HWND hWnd, int width, int height)
 }
 
 
+
 LRESULT CALLBACK DlgProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message)
@@ -134,6 +136,11 @@ LRESULT CALLBACK DlgProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
         handleResize(hWnd, w, h);
         break;
     }
+    case WM_TIMER: {
+        WndTimer* tm = (WndTimer*)wParam;
+        tm->callback(tm);
+        break;
+    }
 
     } // switch
 
@@ -163,8 +170,10 @@ int g_id_counter = 1000;
 HWND __stdcall mg_createCtrl(CtrlBase* c)
 {
     const char* cls = c->type;
+    SliderCtrl* sliderCtrl = NULL;
     if (lstrcmpA(c->type, "SLIDER") == 0) {
         cls = TRACKBAR_CLASSA;
+        sliderCtrl = (SliderCtrl*)c;
     }
     if (lstrcmpA(c->type, "CHECKBOX") == 0) {
         cls = "BUTTON";
@@ -173,7 +182,19 @@ HWND __stdcall mg_createCtrl(CtrlBase* c)
     if (c->id == 0)
         c->id = g_id_counter;
     ++g_id_counter;
-    HWND hw = CreateWindowExA(c->styleex, cls, c->initText, WS_CHILD | WS_VISIBLE | c->style, c->x, c->y, c->width, c->height, g_controlDlg, (HMENU)(uintptr_t)c->id, NULL, NULL);
+    c->parent = g_controlDlg;
+
+    HWND hw = NULL;
+    if (lstrcmpA(c->type, "OGL") == 0)
+    {
+        hw = (HWND)initOpenGL(true, c);
+        if (hw == NULL) {
+            return NULL;
+        }
+    }
+    else {
+        hw = CreateWindowExA(c->styleex, cls, c->initText, WS_CHILD | WS_VISIBLE | c->style, c->x, c->y, c->width, c->height, c->parent, (HMENU)(uintptr_t)c->id, NULL, NULL);
+    }
     c->hwnd = hw;
     SetWindowLongPtr(hw, GWLP_USERDATA, (ULONG_PTR)c);
 
@@ -186,6 +207,10 @@ HWND __stdcall mg_createCtrl(CtrlBase* c)
         // the width of the parent window, minus the right most point of the widget
         c->d_right = (parent.right - parent.left) - c->x - c->width;
         c->d_bottom = (parent.bottom - parent.top) - c->y - c->height;
+    }
+
+    if (sliderCtrl != NULL) {
+        SendMessage(hw, TBM_SETRANGE, TRUE, sliderCtrl->vMin | sliderCtrl->vMax << 16);
     }
 
     return hw;
@@ -228,6 +253,12 @@ bool mg_getOpenFileName(const char* title, const char* filter, char output[MAX_P
     auto ret = GetOpenFileNameA(&ofn);
     return ret;
 }
+
+void mg_setTimer(int msec, WndTimer *tm)
+{
+    SetTimer(g_controlDlg, (UINT_PTR)tm, msec, NULL);
+}
+
 
 
 // IsDlgButtonChecked

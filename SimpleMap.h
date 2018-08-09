@@ -42,7 +42,7 @@ public:
     Pair* begin() {
         for (int i = 0; i < MaxSZ; ++i)
             if (m_kv[i].occupied) 
-                &m_kv[i];
+                return &m_kv[i];
         return end(); // one after the last one
     }
     Pair* end() {

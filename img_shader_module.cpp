@@ -9,6 +9,10 @@
 #include "min_gui.h"
 
 
+struct PyCtrl {
+    PyObject_HEAD
+    CtrlBase* c;
+};
 
 static PyObject *init(PyObject *self, PyObject *args)
 {
@@ -16,12 +20,14 @@ static PyObject *init(PyObject *self, PyObject *args)
     if (!PyArg_ParseTuple(args, "i", &showWnd))
         return NULL;
 
-    if (!initOpenGL(showWnd != 0)) {
+    if (initOpenGL(showWnd != 0, NULL) == NULL) {
         PyErr_SetString(PyExc_RuntimeError, "initOpenGL failed");
         return NULL;
     }
     Py_RETURN_NONE;
 }
+
+
 
 static PyObject *compile_frag_shader(PyObject *self, PyObject *args)
 {
@@ -71,12 +77,12 @@ static PyObject *out_img(PyObject *self, PyObject *args)
         return NULL;
 
     int width, height;
-    getSize(&width, &height);
+    getSize(&width, &height, NULL);
     int sz = width * height * elemSize(format);
     PyObject* str = PyString_FromStringAndSize(NULL, sz);
     char* buf = PyString_AS_STRING(str);
 
-    if (!outImg(format, sz, buf)) {
+    if (!outImg(format, sz, buf, NULL)) {
         Py_DECREF(str);
         PyErr_SetString(PyExc_RuntimeError, "Failed writing image");
         return NULL;
@@ -87,10 +93,14 @@ static PyObject *out_img(PyObject *self, PyObject *args)
 static PyObject *render(PyObject *self, PyObject *args)
 {
     int prog = 0, width = 0, height = 0;
-    if (!PyArg_ParseTuple(args, "i(ii)", &prog, &width, &height))
+    PyObject *pctrl = NULL;
+    if (!PyArg_ParseTuple(args, "i(ii)|O", &prog, &width, &height, &pctrl))
         return NULL;
+    CtrlBase* ctrl = NULL;
+    if (pctrl != NULL)
+        ctrl = ((PyCtrl*)pctrl)->c;
 
-    render(prog, width, height);
+    render(prog, width, height, ctrl);
     Py_RETURN_NONE;
 }
 
@@ -112,34 +122,46 @@ static PyObject *create_control_window(PyObject *self, PyObject *args)
     Py_RETURN_NONE;
 }
 
+
+void checkExcept()
+{
+    if (PyErr_Occurred()) {
+        PyErr_PrintEx(0);
+    }
+}
+
 static void __stdcall editTextChanged(CtrlBase* id, const char* text)
 {
     PyObject *arglist = Py_BuildValue("(s)", text);
     PyObject *result = PyEval_CallObject((PyObject*)id->userData, arglist);
+    checkExcept();
     Py_DECREF(arglist);
 }
 static void __stdcall buttonClicked(CtrlBase* id)
 {
     PyObject *arglist = Py_BuildValue("()");
     PyObject *result = PyEval_CallObject((PyObject*)id->userData, arglist);
+    checkExcept();
     Py_DECREF(arglist);
 }
 static void __stdcall sliderChanged(CtrlBase* id, int value)
 {
+    PyObject *arglist = Py_BuildValue("(i)", value);
+    PyObject *result = PyEval_CallObject((PyObject*)id->userData, arglist);
+    checkExcept();
+    Py_DECREF(arglist);
 }
 static void __stdcall checkboxChanged(CtrlBase* id, bool val)
 {
     PyObject *arglist = Py_BuildValue("(i)", val);
     PyObject *result = PyEval_CallObject((PyObject*)id->userData, arglist);
+    checkExcept();
     Py_DECREF(arglist);
 }
 
-struct Ctrl {
-    PyObject_HEAD
-    CtrlBase* c;
-};
 
-static PyObject *Ctrl_value(Ctrl* self) {
+
+static PyObject *PyCtrl_value(PyCtrl* self) {
     if (strcmp(self->c->type, "CHECKBOX") == 0)
         return Py_BuildValue("i", mg_getInt(self->c));
 
@@ -154,9 +176,9 @@ static PyObject *Ctrl_value(Ctrl* self) {
     Py_RETURN_NONE;
 }
 
-static PyObject *Ctrl_setValue(Ctrl *self, PyObject *args)
+static PyObject *PyCtrl_setValue(PyCtrl *self, PyObject *args)
 {
-    if (strcmp(self->c->type, "EDIT") == 0) {
+    if (strcmp(self->c->type, "EDIT") == 0 || strcmp(self->c->type, "STATIC") == 0) {
         const char *v = NULL;
         if (!PyArg_ParseTuple(args, "s", &v))
             return NULL;
@@ -168,23 +190,23 @@ static PyObject *Ctrl_setValue(Ctrl *self, PyObject *args)
     return NULL;
 }
 
-static void Ctrl_dealloc(Ctrl* self)
+static void PyCtrl_dealloc(PyCtrl* self)
 {
     Py_TYPE(self)->tp_free((PyObject*)self);
 }
 
 
-static PyMethodDef Ctrl_methods[] = {
-    { "value", (PyCFunction)Ctrl_value, METH_NOARGS, "get the value" },
-    { "setValue", (PyCFunction)Ctrl_setValue, METH_VARARGS, "set the value" },
+static PyMethodDef PyCtrl_methods[] = {
+    { "value", (PyCFunction)PyCtrl_value, METH_NOARGS, "get the value" },
+    { "setValue", (PyCFunction)PyCtrl_setValue, METH_VARARGS, "set the value" },
     { NULL }  /* Sentinel */
 };
-static PyTypeObject CtrlType = {
+static PyTypeObject PyCtrlType = {
     PyVarObject_HEAD_INIT(NULL, 0)
     "img_shader.Ctrl",             /* tp_name */
-    sizeof(Ctrl),             /* tp_basicsize */
+    sizeof(PyCtrl),             /* tp_basicsize */
     0,                         /* tp_itemsize */
-    (destructor)Ctrl_dealloc, /* tp_dealloc */
+    (destructor)PyCtrl_dealloc, /* tp_dealloc */
     0,                         /* tp_print */
     0,                         /* tp_getattr */
     0,                         /* tp_setattr */
@@ -208,7 +230,7 @@ static PyTypeObject CtrlType = {
     0,                         /* tp_weaklistoffset */
     0,                         /* tp_iter */
     0,                         /* tp_iternext */
-    Ctrl_methods,             /* tp_methods */
+    PyCtrl_methods,             /* tp_methods */
     0,             /* tp_members */
     0,                         /* tp_getset */
     0,                         /* tp_base */
@@ -223,6 +245,8 @@ static PyTypeObject CtrlType = {
 
 
 const EResizeMode resizeMode(const char* s) {
+    if (s == NULL)
+        return RM_None;
     if (strcmp(s, "None") == 0)
         return RM_None;
     if (strcmp(s, "Stretch") == 0)
@@ -240,9 +264,11 @@ static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds
     int isMultiline = 0;
     // a tuple with two values each one of "None", "Stretch", "Move". controls what this widget does when the window is resized
     const char *resizeXMode = NULL, *resizeYMode = NULL; 
+    int vMin = 0, vMax = 100;
 
-    static char* kwlist[] = {"type", "x", "y", "width", "height", "text", "callback", "isMultiline", "resizeMode", NULL };
-    if (!PyArg_ParseTupleAndKeywords(args, keywds, "siiiisO|i(ss)", kwlist, &type, &x, &y, &width, &height, &text, &callback, &isMultiline, &resizeXMode, &resizeYMode))
+    static char* kwlist[] = {"type", "x", "y", "width", "height", "text", "callback", "isMultiline", "resizeMode", "vrange", NULL };
+    if (!PyArg_ParseTupleAndKeywords(args, keywds, "siiiisO|i(ss)(ii)", kwlist, &type, &x, &y, &width, &height, &text, &callback, 
+                                                                        &isMultiline, &resizeXMode, &resizeYMode, &vMin, &vMax))
         return NULL;
 
     CtrlBase *ctrl = NULL;
@@ -266,14 +292,23 @@ static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds
         ectrl->clicked = buttonClicked;
     }
     else if (strcmp(type, "SLIDER") == 0) {
-        ctrl = (CtrlBase*)malloc(sizeof(SliderCtrl));
+        auto ectrl = (SliderCtrl*)malloc(sizeof(SliderCtrl));
+        ctrl = &ectrl->c;
         memset(ctrl, 0, sizeof(SliderCtrl));
+        ectrl->changed = sliderChanged;
+        ectrl->vMin = vMin;
+        ectrl->vMax = vMax;
     }
     else if (strcmp(type, "CHECKBOX") == 0) {
         auto ectrl = (CheckBoxCtrl*)malloc(sizeof(CheckBoxCtrl));
         ctrl = &ectrl->c;
         memset(ctrl, 0, sizeof(CheckBoxCtrl));
         ectrl->changed = checkboxChanged;
+    }
+    else if (strcmp(type, "OGL") == 0) {
+        auto ectrl = (OGLCtrl*)malloc(sizeof(OGLCtrl));
+        ctrl = &ectrl->c;
+        memset(ctrl, 0, sizeof(CheckBoxCtrl));
     }
     else {
         PyErr_SetString(PyExc_RuntimeError, "Unknown type");
@@ -291,9 +326,13 @@ static PyObject *create_control(PyObject *self, PyObject *args, PyObject *keywds
     ctrl->resizeModeX = resizeMode(resizeXMode);
     ctrl->resizeModeY = resizeMode(resizeYMode);
 
-    mg_createCtrl((CtrlBase*)ctrl);
+    HWND w = mg_createCtrl((CtrlBase*)ctrl);
+    if (w == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "mg_createCtrl failed");
+        return NULL;
+    }
 
-    Ctrl *ret = (Ctrl *)CtrlType.tp_alloc(&CtrlType, 0);
+    PyCtrl *ret = (PyCtrl *)PyCtrlType.tp_alloc(&PyCtrlType, 0);
     ret->c = ctrl;
     return (PyObject *)ret;
 }
@@ -325,6 +364,31 @@ static PyObject *file_dlg(PyObject *self, PyObject *args)
 }
 
 
+
+static void __stdcall timer_callback(WndTimer* id)
+{
+    PyObject *arglist = Py_BuildValue("()");
+    PyObject *result = PyEval_CallObject((PyObject*)id->py_callback, arglist);
+    checkExcept();
+    Py_DECREF(arglist);
+}
+
+static PyObject *set_wnd_timer(PyObject *self, PyObject *args)
+{
+    int msec = 0;
+    PyObject* pycallback = NULL;
+    if (!PyArg_ParseTuple(args, "iO", &msec, &pycallback))
+        return NULL;
+
+    auto etm = (WndTimer*)malloc(sizeof(WndTimer));
+    memset(etm, 0, sizeof(WndTimer));
+    etm->callback = timer_callback;
+    etm->py_callback = pycallback;
+    mg_setTimer(msec, etm);
+    Py_RETURN_NONE;
+}
+
+
 static PyMethodDef ImgShaderMethods[] = {
    // {"set_img_size",  set_img_size, METH_VARARGS, "Init image,window size"},
     {"init",  init, METH_VARARGS, "Init opengl"},
@@ -338,6 +402,7 @@ static PyMethodDef ImgShaderMethods[] = {
     {"create_control_window", create_control_window, METH_VARARGS, "create parent window for all controls" },
     {"create_control", (PyCFunction)create_control, METH_VARARGS| METH_KEYWORDS, "child control window" },
     {"file_dlg", file_dlg, METH_VARARGS, "Open file dialog"},
+    {"set_wnd_timer", set_wnd_timer, METH_VARARGS, "create a timer that is called from the windows loop" },
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 
@@ -348,13 +413,13 @@ static PyMethodDef ImgShaderMethods[] = {
 
 PyMODINIT_FUNC initimg_shader(void)
 {
-    if (PyType_Ready(&CtrlType) < 0)
+    if (PyType_Ready(&PyCtrlType) < 0)
         return;
 
     PyObject *m = Py_InitModule3("img_shader", ImgShaderMethods, "OpenGL module");
     if (m == NULL)
         return;
 
-    Py_INCREF(&CtrlType);
-    PyModule_AddObject(m, "Ctrl", (PyObject *)&CtrlType);
+    Py_INCREF(&PyCtrlType);
+    PyModule_AddObject(m, "PyCtrl", (PyObject *)&PyCtrlType);
 }

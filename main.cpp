@@ -4,6 +4,7 @@
 
 #include <gl/glew.h>
 #include "img_shader.h"
+#include "min_gui.h"
 #include "SimpleMap.h"
 
 
@@ -102,50 +103,83 @@ void mglCheckErrors(const char* place)
 }
 
 
-HDC g_hDC = NULL;
-HWND g_hWnd = NULL;
-int g_width = 160;
-int g_height = 160;
-DWORD g_wndStyle = 0;
+//HDC g_hDC = NULL;
+//HWND g_hWnd = NULL;
+//int g_width = 160;
+//int g_height = 160;
+//DWORD g_wndStyle = 0;
 bool g_showWindow = false;
+bool g_ogl_cls_reg = false;
+OGLCtrl* g_gl_ctrl = NULL; // singleton ctrl in case we called init with NULL ctrl
+HGLRC g_first_glrc = NULL;
 
-void getSize(int* width, int* height) {
-    *width = g_width;
-    *height = g_height;
+void getSize(int* width, int* height, void* pctrl) {
+    OGLCtrl* ctrl = (OGLCtrl*)pctrl;
+    if (ctrl == NULL)
+        ctrl = g_gl_ctrl;
+
+    *width = ctrl->c.width;
+    *height = ctrl->c.height;
 }
 
-bool initOpenGL(bool showWindow)
+void* initOpenGL(bool showWindow, void* pctrl)
 {
-    WNDCLASSEXA wcex = {0};
-	wcex.cbSize = sizeof(WNDCLASSEX); 
-	wcex.style			= CS_OWNDC; //CS_HREDRAW | CS_VREDRAW;
-	wcex.lpfnWndProc	= (WNDPROC)OglWndProc;
-	wcex.hbrBackground	= NULL; //(HBRUSH)(COLOR_WINDOW+1);
-	wcex.lpszClassName	= MY_WND_CLS;
+    if (!g_ogl_cls_reg)
+    {
+        WNDCLASSEXA wcex = {0};
+	    wcex.cbSize = sizeof(WNDCLASSEX); 
+	    wcex.style			= CS_OWNDC; //CS_HREDRAW | CS_VREDRAW;
+	    wcex.lpfnWndProc	= (WNDPROC)OglWndProc;
+	    wcex.hbrBackground	= NULL; //(HBRUSH)(COLOR_WINDOW+1);
+	    wcex.lpszClassName	= MY_WND_CLS;
 
-	if (RegisterClassExA(&wcex) == 0) {
-        LOG("Failed RegisterClassExA");
-        return false;
+	    if (RegisterClassExA(&wcex) == 0) {
+            LOG("Failed RegisterClassExA");
+            return NULL;
+        }
+        g_ogl_cls_reg = true;
     }
 
     g_showWindow = showWindow;
+    //int x = CW_USEDEFAULT, y = CW_USEDEFAULT;
+    //HWND parent = NULL;
+    OGLCtrl* ctrl = NULL;
+    if (pctrl == NULL)
+    {
+        if (g_gl_ctrl != NULL) {
+            LOG("Already have gloval gl widget");
+            return NULL;
+        }
+        ctrl = (OGLCtrl*)malloc(sizeof(OGLCtrl));
+        ctrl->c.style = WS_SYSMENU | WS_MINIMIZEBOX | WS_OVERLAPPED | WS_CAPTION;
+      //  if (width < 150)
+      //      style = WS_POPUP; // the title bar would streach it don't do now becuase render really sets the size
+        memset(ctrl, 0, sizeof(CheckBoxCtrl));
+        ctrl->c.x = CW_USEDEFAULT;
+        ctrl->c.y = CW_USEDEFAULT;
+        ctrl->c.width = 160; // some initial values, will be changed in render
+        ctrl->c.height = 160; 
+        g_gl_ctrl = ctrl;
+    }
+    else
+    {
+        ctrl = (OGLCtrl*)pctrl;
+        ctrl->c.style = WS_CHILDWINDOW;
+    }
+    RECT rect = { 0,0,ctrl->c.width,ctrl->c.height };
+    AdjustWindowRect(&rect, ctrl->c.style, FALSE);
 
-    g_wndStyle = WS_SYSMENU | WS_MINIMIZEBOX | WS_OVERLAPPED | WS_CAPTION;
-  //  if (width < 150)
-  //      style = WS_POPUP; // the title bar would streach it don't do now becuase render really sets the size
-    RECT rect = {0,0,g_width,g_height};
-    AdjustWindowRect(&rect, g_wndStyle, FALSE);
     //LOG("rect %d,%d,%d,%d", rect.top, rect.bottom, rect.left, rect.right);
 
-    HWND hWnd = CreateWindowA(MY_WND_CLS, "OGL", g_wndStyle, CW_USEDEFAULT, CW_USEDEFAULT, rect.right - rect.left, rect.bottom - rect.top, NULL,0,0,0);
+    HWND hWnd = CreateWindowA(MY_WND_CLS, "OGL", ctrl->c.style, ctrl->c.x, ctrl->c.y, rect.right - rect.left, rect.bottom - rect.top, ctrl->c.parent,0,0,0);
     if (hWnd == NULL) {
         LOG("Failed CreateWindowA");
-        return false;
+        return NULL;
     }
 
     HDC hDC = GetDC(hWnd);
-    g_hDC = hDC;
-    g_hWnd = hWnd;
+    ctrl->hDC = hDC;
+    ctrl->c.hwnd = hWnd;
 
     PIXELFORMATDESCRIPTOR pfd = {
 	        sizeof(PIXELFORMATDESCRIPTOR),
@@ -167,15 +201,27 @@ bool initOpenGL(bool showWindow)
         };
     int pf = ChoosePixelFormat(hDC, &pfd);
 
-    if (!SetPixelFormat(hDC, pf, &pfd))
-        return 1;
+    if (!SetPixelFormat(hDC, pf, &pfd)) {
+        LOG("failed SetPixelFormat");
+        return NULL;
+    }
     HGLRC rc = wglCreateContext(hDC);
+    ctrl->glrc = rc;
     wglMakeCurrent(hDC, rc);
+
+    if (g_first_glrc != NULL) {
+        if (!wglShareLists(rc, g_first_glrc)) {
+            LOG("failed wglShareLists");
+            return NULL;
+        }
+    }
+    else
+        g_first_glrc = rc;
 
     auto err = glewInit();
     if (err != GLEW_OK) {
         LOG("glewInit error %d", err);
-        return false;
+        return NULL;
     }
 
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
@@ -184,7 +230,7 @@ bool initOpenGL(bool showWindow)
 
     if (showWindow)
         ShowWindow(hWnd, SW_SHOW);
-    return true;
+    return hWnd;
 }
 
 #define ATTR_VTX 0
@@ -317,25 +363,38 @@ int inImg(const char* fmtname, int width, int height, const char* buf, const cha
 
 
 
-void render(int prog, int width, int height)
+void render(int prog, int width, int height, void* pctrl)
 {
-    if (width != g_width || height != g_height) 
+    OGLCtrl* ctrl = (OGLCtrl*)pctrl;
+    if (ctrl == NULL)
+        ctrl = g_gl_ctrl;
+    wglMakeCurrent(ctrl->hDC, ctrl->glrc);
+
+    if (width != ctrl->c.width || height != ctrl->c.height)
     {
         RECT origPos = {0};
-        GetWindowRect(g_hWnd, &origPos);
+        if (ctrl->c.parent == NULL)
+            GetWindowRect(ctrl->c.hwnd, &origPos);
+        else {
+            origPos.top = ctrl->c.y;
+            origPos.left = ctrl->c.x;
+            origPos.bottom = ctrl->c.y + ctrl->c.height;
+            origPos.right = ctrl->c.x + ctrl->c.width;
+        }
         //  if (width < 150)
         //      style = WS_POPUP; // the title bar would streach it
         RECT rect = { 0,0,width,height };
-        AdjustWindowRect(&rect, g_wndStyle, FALSE);
+        AdjustWindowRect(&rect, ctrl->c.style, FALSE);
 
-        MoveWindow(g_hWnd, origPos.left, origPos.top, rect.right - rect.left, rect.bottom - rect.top, TRUE);
-        g_width = width;
-        g_height = height;
+        MoveWindow(ctrl->c.hwnd, origPos.left, origPos.top, rect.right - rect.left, rect.bottom - rect.top, TRUE);
+        ctrl->c.width = width;
+        ctrl->c.height = height;
 
         glViewport(0, 0, width, height);
     }
 
     glUseProgram(prog);
+    mglCheckErrors("render1");
 
     unsigned int vtxBuf = 0;
     unsigned int indBuf = 0;
@@ -343,8 +402,10 @@ void render(int prog, int width, int height)
 
     if (vtxBuf == 0)
     {
-        float vtxData[] = { 1.0f, -1.0f,  0.0f, -1.0f,  1.0f,  0.0f, -1.0f, -1.0f,  0.0f, 1.0f,  1.0f,  0.0f };
-        //float vtxData[] = { 0.5f, -0.5f,  0.0f, -0.5f,  0.5f,  0.0f, -0.5f, -0.5f,  0.0f, 0.5f,  0.5f,  0.0f };
+        float vtxData[] = { 1.0f, -1.0f,  0.0f,   // 0 3
+                           -1.0f,  1.0f,  0.0f,   // 2 1 
+                           -1.0f, -1.0f,  0.0f, 
+                            1.0f,  1.0f,  0.0f };
         short indData[] = { 1, 2, 3, 3, 2, 0 };
         indCount = 6;
 
@@ -364,6 +425,8 @@ void render(int prog, int width, int height)
     int i = 0;
     for(const auto& kv: g_tex2varname)
     {
+        if (!kv.occupied)
+            continue;
         int loc_tex = glGetUniformLocation(prog, kv.value);
 
         glActiveTexture(GL_TEXTURE0 + i);
@@ -376,14 +439,19 @@ void render(int prog, int width, int height)
     glDrawElements(GL_TRIANGLES, indCount, GL_UNSIGNED_SHORT, 0);
 
     if (g_showWindow)
-        SwapBuffers(g_hDC);
+        SwapBuffers(ctrl->hDC);
+    mglCheckErrors("render2");
 
 
 };
 
-bool outImg(const char* fmtname, int size, char* intoBuf)
+bool outImg(const char* fmtname, int size, char* intoBuf, void* pctrl)
 {
-    int needSz = g_width * g_height * elemSize(fmtname);
+    OGLCtrl* ctrl = (OGLCtrl*)pctrl;
+    if (ctrl == NULL)
+        ctrl = g_gl_ctrl;
+
+    int needSz = ctrl->c.width * ctrl->c.height * elemSize(fmtname);
     if (size != needSz) {
         LOG("Wrong size! %d != %d", size, needSz);
         return false;
@@ -393,7 +461,7 @@ bool outImg(const char* fmtname, int size, char* intoBuf)
     int format = 0, type = 0;
 
     if (strcmp(fmtname, "L") == 0) {
-        ensureConvBuf(g_width, g_height);
+        ensureConvBuf(ctrl->c.width, ctrl->c.height);
         buf = g_convertBuf;
         singleChan = true;
         format = GL_RGBA;
@@ -413,12 +481,12 @@ bool outImg(const char* fmtname, int size, char* intoBuf)
         return false;
 
     if (g_showWindow)
-        SwapBuffers(g_hDC); // front buffer to back so it's readable
+        SwapBuffers(ctrl->hDC); // front buffer to back so it's readable
     
-    glReadPixels(0, 0, g_width, g_height, format, type, (void*)buf);
+    glReadPixels(0, 0, ctrl->c.width, ctrl->c.height, format, type, (void*)buf);
 
     if (g_showWindow)
-        SwapBuffers(g_hDC); // back buffer to front so it's visible
+        SwapBuffers(ctrl->hDC); // back buffer to front so it's visible
 
 
     if (singleChan)
